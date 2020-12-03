@@ -30,3 +30,12 @@ func interfaceForRemote(remote string) (net.IP, error) {
 
 	return localAddr.IP, nil
 }
+
+func addDot(name string) string {
+	x := len(name)
+	if name[:x-1] != "." {
+		return name + "."
+	}
+	return name
+
+}

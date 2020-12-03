@@ -5,6 +5,7 @@ go 1.15
 replace github.com/riverbed-cto/mdns => ../../
 
 require (
+	github.com/miekg/dns v1.1.35
 	github.com/riverbed-cto/mdns v0.0.0-00010101000000-000000000000
-	golang.org/x/net v0.0.0-20201110031124-69a78807bb2b
+	golang.org/x/net v0.0.0-20201202161906-c7110b5ffcbb
 )

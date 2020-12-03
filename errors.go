@@ -10,4 +10,5 @@ var (
 	errRecordExists          = errors.New("mDNS: record already exists")
 	errRecordNotFound        = errors.New("mDNS: record not found")
 	errInvalidParameter      = errors.New("mDNS: invalid parameter")
+	errInvalidPacket         = errors.New("mDNS: invalid packet")
 )
