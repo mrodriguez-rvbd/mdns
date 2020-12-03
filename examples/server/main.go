@@ -19,7 +19,8 @@ func main() {
 	}
 
 	config := &mdns.Config{}
-	config.AddARecord("catalog.gibson.local.", nil, true)
+	config.AddARecord("catalog.gibson.local", nil, true)
+	config.AddSRVRecord("_catalog._tcp.local", 0, 0, 8888, "catalog.gibson.local")
 	_, err = mdns.Server(ipv4.NewPacketConn(l), config)
 	if err != nil {
 		panic(err)

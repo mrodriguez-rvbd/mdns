@@ -5,8 +5,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/miekg/dns"
 	"go.uber.org/zap"
-	"golang.org/x/net/dns/dnsmessage"
 )
 
 const (
@@ -23,14 +23,14 @@ type Config struct {
 
 	// LocalNames are the names that we will generate answers for
 	// when we get questions
-	ARecords   []DynamicARecord
-	SRVRecords []dnsmessage.Resource
+	ARecords   []DynamicARR
+	SRVRecords []dns.SRV
 }
 
-// DynamicARecord allow creating ARecords that will change ip address
+// DynamicARR allow creating A Records that will change ip address
 // based on the source of the packet
-type DynamicARecord struct {
-	dnsmessage.Resource
+type DynamicARR struct {
+	dns.A
 	Dynamic bool
 }
 
@@ -40,7 +40,8 @@ func (c *Config) RemoveARecord(name string) error {
 	defer c.Unlock()
 
 	for i := len(c.ARecords) - 1; i >= 0; i-- {
-		if c.ARecords[i].Header.Name.String() == name {
+
+		if c.ARecords[i].Header().Name == name {
 			c.ARecords = append(c.ARecords[:i], c.ARecords[i+1])
 			Log().Debug("Removed A record", zap.String("name", name))
 			return nil
@@ -55,7 +56,7 @@ func (c *Config) RemoveSRVRecord(name string) error {
 	defer c.Unlock()
 
 	for i := len(c.SRVRecords) - 1; i >= 0; i-- {
-		if c.SRVRecords[i].Header.Name.String() == name {
+		if c.SRVRecords[i].Header().Name == name {
 			c.SRVRecords = append(c.SRVRecords[:i], c.SRVRecords[i+1])
 			Log().Debug("Added SRV record", zap.String("name", name))
 			return nil
@@ -72,14 +73,16 @@ func (c *Config) AddARecord(name string, dst *net.IP, dyn bool) error {
 	if name == "" {
 		return errInvalidParameter
 	}
+
+	name = addDot(name)
+
 	rec, err := c.createSimpleARecord(name)
 	if err != nil {
 		return err
 	}
 	if !dyn && dst != nil {
-		rec.Resource.Body = &dnsmessage.AResource{
-			A: ipToBytes(*dst),
-		}
+		rec.Header().Name = name
+		rec.A.A = *dst
 		rec.Dynamic = false
 	} else {
 		if dyn == false {
@@ -94,7 +97,7 @@ func (c *Config) AddARecord(name string, dst *net.IP, dyn bool) error {
 	if err := c.addARecordToConfig(rec); err != nil {
 		return err
 	}
-	Log().Debug("Added A record", zap.String("name", name))
+	Log().Debug("Added A record", zap.String("name", rec.String()))
 	return nil
 }
 
@@ -103,6 +106,8 @@ func (c *Config) AddSRVRecord(name string, priority, weight, port uint16, target
 	if name == "" || target == "" {
 		return errInvalidParameter
 	}
+	name = addDot(name)
+	target = addDot(target)
 	rec, err := c.createSRVRecord(name, priority, weight, port, target)
 	if err != nil {
 		return err
@@ -116,11 +121,11 @@ func (c *Config) AddSRVRecord(name string, priority, weight, port uint16, target
 	return nil
 }
 
-func (c *Config) addARecordToConfig(rec *DynamicARecord) error {
+func (c *Config) addARecordToConfig(rec *DynamicARR) error {
 	c.Lock()
 	defer c.Unlock()
 	for i := len(c.ARecords) - 1; i >= 0; i-- {
-		if c.ARecords[i].Header.Name.String() == rec.Header.Name.String() { // Record already there
+		if c.ARecords[i].Header().Name == rec.Header().Name { // Record already there
 			return errRecordExists
 		}
 	}
@@ -128,11 +133,11 @@ func (c *Config) addARecordToConfig(rec *DynamicARecord) error {
 	return nil
 }
 
-func (c *Config) addSRVRecordToConfig(rec *dnsmessage.Resource) error {
+func (c *Config) addSRVRecordToConfig(rec *dns.SRV) error {
 	c.Lock()
 	defer c.Unlock()
 	for i := len(c.SRVRecords) - 1; i >= 0; i-- {
-		if c.SRVRecords[i].Header.Name.String() == rec.Header.Name.String() { // Record already there
+		if c.SRVRecords[i].Header().Name == rec.Header().Name { // Record already there
 			return errRecordExists
 		}
 	}
@@ -140,62 +145,44 @@ func (c *Config) addSRVRecordToConfig(rec *dnsmessage.Resource) error {
 	return nil
 }
 
-func (c *Config) createSimpleARecord(name string) (*DynamicARecord, error) {
-	packedName, err := dnsmessage.NewName(name)
-	if err != nil {
-		return nil, err
-	}
-	rec := &DynamicARecord{
-		Resource: dnsmessage.Resource{
-			Header: dnsmessage.ResourceHeader{
-				Type:  dnsmessage.TypeA,
-				Class: dnsmessage.ClassINET,
-				Name:  packedName,
-				TTL:   responseTTL,
+func (c *Config) createSimpleARecord(name string) (*DynamicARR, error) {
+	rec := &DynamicARR{
+		A: dns.A{
+			Hdr: dns.RR_Header{
+				Name:   name,
+				Class:  dns.ClassINET,
+				Ttl:    responseTTL,
+				Rrtype: dns.TypeA,
 			},
-			Body: nil,
 		},
 	}
+
 	return rec, nil
 }
 
-func (c *Config) createSRVRecord(name string, priority, weight, port uint16, target string) (*dnsmessage.Resource, error) {
-	packedName, err := dnsmessage.NewName(name)
-	if err != nil {
-		return nil, err
-	}
-
-	packedTarget, err := dnsmessage.NewName(target)
-	if err != nil {
-		return nil, err
-	}
-
-	rec := &dnsmessage.Resource{
-		Header: dnsmessage.ResourceHeader{
-			Type:  dnsmessage.TypeA,
-			Class: dnsmessage.ClassINET,
-			Name:  packedName,
-			TTL:   responseTTL,
+func (c *Config) createSRVRecord(name string, priority, weight, port uint16, target string) (*dns.SRV, error) {
+	rec := &dns.SRV{
+		Hdr: dns.RR_Header{
+			Name:   name,
+			Rrtype: dns.TypeSRV,
+			Class:  dns.ClassINET,
 		},
-		Body: &dnsmessage.SRVResource{
-			Port:     port,
-			Priority: priority,
-			Target:   packedTarget,
-			Weight:   weight,
-		},
+		Port:     port,
+		Priority: priority,
+		Weight:   weight,
+		Target:   target,
 	}
 	return rec, nil
 }
 
 // Lookup look up A and SRV records, allow for recursion in SVR record
-func (c *Config) Lookup(answers []dnsmessage.Resource, name string, ttype dnsmessage.Type, class dnsmessage.Class, src net.Addr) error {
+func (c *Config) Lookup(answers *[]dns.RR, q *dns.Question, src net.Addr) error {
 	c.RLock()
 	defer c.RUnlock()
 
-	switch ttype {
-	case dnsmessage.TypeA:
-
-		if rec := c.lookupA(name); rec != nil {
+	switch q.Qtype {
+	case dns.TypeA:
+		if rec := c.lookupA(q.Name); rec != nil {
 			// create default message and fill out values
 			if rec.Dynamic {
 				if err := rec.AddDynamicIP(src); err != nil {
@@ -203,28 +190,37 @@ func (c *Config) Lookup(answers []dnsmessage.Resource, name string, ttype dnsmes
 					return err
 				}
 			}
-
-			answers = append(answers, rec.Resource)
+			*answers = append(*answers, rec)
 			return nil
 		}
 
-	case dnsmessage.TypeSRV:
-		if rec := c.lookupSRV(name); rec != nil {
-			// Recursive add other answers ( A Records )
-			if err := c.Lookup(answers, rec.Header.Name.String(), rec.Header.Type, rec.Header.Class, src); err != nil {
-				answers = append(answers, *rec)
+	case dns.TypeSRV:
+		if rec := c.lookupSRV(q.Name); rec != nil {
+			// Find A Records if available and add to answers ( A Records )
+
+			newQ := dns.Question{
+				Name:   rec.Target, // Recursive based on the target of the SVR Record
+				Qtype:  dns.TypeA,
+				Qclass: rec.Header().Class,
 			}
+			*answers = append(*answers, rec)
+
+			if err := c.Lookup(answers, &newQ, src); err != nil {
+				return err
+			}
+
 			return nil
+
 		}
 	}
 
-	return errRecordNotFound
+	return nil // Is not an error if not found
 }
 
 // LookupA Records based on name
-func (c *Config) lookupA(qName string) *DynamicARecord {
+func (c *Config) lookupA(qName string) *DynamicARR {
 	for _, aRec := range c.ARecords {
-		if aRec.Header.Name.String() == qName {
+		if aRec.Header().Name == qName {
 			aRec1 := aRec // shallow copy
 			return &aRec1
 		}
@@ -233,28 +229,26 @@ func (c *Config) lookupA(qName string) *DynamicARecord {
 }
 
 // LookupSRV Records based on name
-func (c *Config) lookupSRV(qName string) *dnsmessage.Resource {
+func (c *Config) lookupSRV(qName string) *dns.SRV {
 	c.RLock()
 	defer c.RUnlock()
 	for _, srvRec := range c.SRVRecords {
-		if srvRec.Header.Name.String() == qName {
+		if srvRec.Header().Name == qName {
 			return &srvRec
 		}
 	}
 	return nil
 }
 
-// AddDynamicIP modify the dynamicARecord to include the dynamic ip address,
+// AddDynamicIP modify the DynamicARR to include the dynamic ip address,
 // return error on error or nil
-func (d *DynamicARecord) AddDynamicIP(src net.Addr) error {
+func (d *DynamicARR) AddDynamicIP(src net.Addr) error {
 	dst, err := interfaceForRemote(src.String())
 	if err != nil {
 		Log().Warn("Failed to get local interface to talk peer",
 			zap.String("Source", src.String()), zap.Error(err))
 		return errInvalidParameter
 	}
-	d.Resource.Body = &dnsmessage.AResource{
-		A: ipToBytes(dst),
-	}
+	d.A.A = dst
 	return nil
 }

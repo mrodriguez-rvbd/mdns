@@ -31,8 +31,10 @@ func Get() *zap.Logger {
 }
 
 func initLogger() {
+	var zapConfig zap.Config
+
 	//logLevel := viper.GetString("level")
-	logLevel := "debug"
+	logLevel := "warn"
 	level := zap.NewAtomicLevelAt(zapcore.InfoLevel)
 	switch logLevel {
 	case "debug":
@@ -63,19 +65,34 @@ func initLogger() {
 		EncodeCaller:   zapcore.ShortCallerEncoder,
 	}
 
-	var zapConfig zap.Config
-
-	zapConfig = zap.Config{
-		Level:       level,
-		Development: false,
-		Sampling: &zap.SamplingConfig{
-			Initial:    100,
-			Thereafter: 100,
-		},
-		Encoding:         "json",
-		EncoderConfig:    zapEncoderConfig,
-		OutputPaths:      []string{"stderr"},
-		ErrorOutputPaths: []string{"stderr"},
+	if logLevel == "debug" {
+		zapConfig = zap.Config{
+			Level:         level,
+			Development:   true,
+			DisableCaller: false,
+			Sampling: &zap.SamplingConfig{
+				Initial:    100,
+				Thereafter: 100,
+			},
+			Encoding:         "console",
+			EncoderConfig:    zapEncoderConfig,
+			OutputPaths:      []string{"stderr"},
+			ErrorOutputPaths: []string{"stderr"},
+		}
+	} else {
+		zapConfig = zap.Config{
+			Level:         level,
+			Development:   false,
+			DisableCaller: true,
+			Sampling: &zap.SamplingConfig{
+				Initial:    100,
+				Thereafter: 100,
+			},
+			Encoding:         "console",
+			EncoderConfig:    zapEncoderConfig,
+			OutputPaths:      []string{"stderr"},
+			ErrorOutputPaths: []string{"stderr"},
+		}
 	}
 
 	l, err := zapConfig.Build()
