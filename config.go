@@ -35,7 +35,7 @@ type DynamicARR struct {
 }
 
 // RemoveARecord remove a record for the configuration based on name
-func (c *Config) RemoveARecord(name string) error {
+func (c *Config) removeARecord(name string) error {
 	c.Lock()
 	defer c.Unlock()
 
@@ -51,7 +51,7 @@ func (c *Config) RemoveARecord(name string) error {
 }
 
 // RemoveSRVRecord remove a srv record from configuration
-func (c *Config) RemoveSRVRecord(name string) error {
+func (c *Config) removeSRVRecord(name string) error {
 	c.Lock()
 	defer c.Unlock()
 
@@ -69,7 +69,7 @@ func (c *Config) RemoveSRVRecord(name string) error {
 // if dyn is true, then the record is dynamic and dst can be nil
 // if dst is specified , then dyn should be set to false to create
 // a static A Record
-func (c *Config) AddARecord(name string, dst *net.IP, dyn bool) error {
+func (c *Config) addARecord(name string, dst *net.IP, dyn bool) error {
 	if name == "" {
 		return errInvalidParameter
 	}
@@ -86,7 +86,7 @@ func (c *Config) AddARecord(name string, dst *net.IP, dyn bool) error {
 		rec.Dynamic = false
 	} else {
 		if dyn == false {
-			Log().Warn("AddARecord no dst specified, created dynamic record instead",
+			Log().Debug("AddARecord no dst specified, created dynamic record instead",
 				zap.String("name", name))
 		}
 		// Create dynamic record and warn user
@@ -102,7 +102,7 @@ func (c *Config) AddARecord(name string, dst *net.IP, dyn bool) error {
 }
 
 // AddSRVRecord adds a SRV record to the configuration
-func (c *Config) AddSRVRecord(name string, priority, weight, port uint16, target string) error {
+func (c *Config) addSRVRecord(name string, priority, weight, port uint16, target string) error {
 	if name == "" || target == "" {
 		return errInvalidParameter
 	}
@@ -186,7 +186,7 @@ func (c *Config) Lookup(answers *[]dns.RR, q *dns.Question, src net.Addr) error 
 			// create default message and fill out values
 			if rec.Dynamic {
 				if err := rec.AddDynamicIP(src); err != nil {
-					Log().Warn("Error", zap.Error(err))
+					Log().Debug("Error", zap.Error(err))
 					return err
 				}
 			}
@@ -245,7 +245,7 @@ func (c *Config) lookupSRV(qName string) *dns.SRV {
 func (d *DynamicARR) AddDynamicIP(src net.Addr) error {
 	dst, err := interfaceForRemote(src.String())
 	if err != nil {
-		Log().Warn("Failed to get local interface to talk peer",
+		Log().Debug("Failed to get local interface to talk peer",
 			zap.String("Source", src.String()), zap.Error(err))
 		return errInvalidParameter
 	}
