@@ -63,7 +63,7 @@ func (q *QueryResult) GetAddr() *net.Addr {
 // NewServer creates a new instance of the mDNS server, the server is used
 // to read packets from the multicast group for both client and
 // server side functionality.
-func NewServer(context *context.Context) (*Conn, error) {
+func NewServer(context context.Context) (*Conn, error) {
 	addr, err := net.ResolveUDPAddr("udp", destinationAddress)
 	if err != nil {
 		return nil, err
@@ -78,7 +78,7 @@ func NewServer(context *context.Context) (*Conn, error) {
 	if err != nil {
 		return nil, err
 	}
-	server.ctx = *context
+	server.ctx = context
 	return server, nil
 }
 

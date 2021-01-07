@@ -11,7 +11,7 @@ import (
 
 // Discovery service
 type Discovery struct {
-	ctx             *context.Context
+	ctx             context.Context
 	parentWaitGroup *sync.WaitGroup
 	conn            *Conn
 }
@@ -22,46 +22,61 @@ type DiscoverySrvResult struct {
 }
 
 type DiscoverySrvQuery struct {
-	Ctx      context.Context
-	Name     string
-	Ttype    uint16
-	QChannel chan *DiscoverySrvQuery
-	Timeout  time.Duration
+	ctx      context.Context
+	name     string
+	ttype    uint16
+	qChannel chan *DiscoverySrvQuery
+	timeout  time.Duration
 }
 
-// New creates a new discovery service
-func NewDiscovery(c *context.Context, wait *sync.WaitGroup) *Discovery {
+// NewDiscovery creates a new process
+func NewDiscovery(opts ...func(*Discovery)) *Discovery {
+	d := &Discovery{}
 
-	conn, err := NewServer(c)
-	if err != nil {
-		Log().Debug(err.Error())
-		return nil
+	for _, opt := range opts {
+		opt(d)
 	}
 
-	return &Discovery{
-		ctx:             c,
-		parentWaitGroup: wait,
-		conn:            conn,
+	return d
+}
+
+// WithContext configure a probe with the specified AF
+func WithContext(ctx context.Context) func(*Discovery) {
+	return func(t *Discovery) {
+		t.ctx = ctx
+	}
+}
+
+// WithWaitGroup configure a probe with the specified AF
+func WithWaitGroup(wg *sync.WaitGroup) func(*Discovery) {
+	return func(s *Discovery) {
+		s.parentWaitGroup = wg
 	}
 }
 
 // Start the discovery process
 func (d *Discovery) Start() {
+	conn, err := NewServer(d.ctx)
+	if err != nil {
+		Log().Debug(err.Error())
+		return
+	}
+	d.conn = conn
 
+	d.parentWaitGroup.Add(1)
 	go func() {
 		// Start connection handling of multicast DNS packets
 		// Exits on context cancel
 		d.conn.Start()
 		d.parentWaitGroup.Done()
 	}()
-
 }
 
 // Timeout function
 // Set the timeout of the query
 func Timeout(timeout time.Duration) func(*DiscoverySrvQuery) {
 	return func(dq *DiscoverySrvQuery) {
-		dq.Timeout = timeout
+		dq.timeout = timeout
 	}
 }
 
@@ -69,7 +84,7 @@ func Timeout(timeout time.Duration) func(*DiscoverySrvQuery) {
 // Set the name of the query
 func Name(name string) func(*DiscoverySrvQuery) {
 	return func(dq *DiscoverySrvQuery) {
-		dq.Name = name
+		dq.name = name
 	}
 }
 
@@ -77,7 +92,7 @@ func Name(name string) func(*DiscoverySrvQuery) {
 // Set the type of the query
 func Type(ttype uint16) func(*DiscoverySrvQuery) {
 	return func(dq *DiscoverySrvQuery) {
-		dq.Ttype = ttype
+		dq.ttype = ttype
 	}
 }
 
@@ -85,16 +100,16 @@ func Type(ttype uint16) func(*DiscoverySrvQuery) {
 // Set the context of the query
 func Context(ctx context.Context) func(*DiscoverySrvQuery) {
 	return func(dq *DiscoverySrvQuery) {
-		dq.Ctx = ctx
+		dq.ctx = ctx
 	}
 }
 
 // FindCatalog finds the catalog service, returns a channel to transmit the result or close channel if timeout
 func (d *Discovery) FindCatalog(opts ...func(*DiscoverySrvQuery)) chan *DiscoverySrvResult {
 	query := &DiscoverySrvQuery{
-		Ctx:   context.TODO(),
-		Name:  "_catalog._tcp.local",
-		Ttype: dns.TypeSRV,
+		ctx:   context.TODO(),
+		name:  "_catalog._tcp.local",
+		ttype: dns.TypeSRV,
 	}
 	// apply the list of options to Server
 	for _, opt := range opts {
@@ -104,9 +119,9 @@ func (d *Discovery) FindCatalog(opts ...func(*DiscoverySrvQuery)) chan *Discover
 
 	go func() {
 		// Create timeout
-		tick := time.Tick(query.Timeout)
+		tick := time.Tick(query.timeout)
 
-		results := d.conn.QueryASync(query.Ctx, query.Name, query.Ttype)
+		results := d.conn.QueryASync(query.ctx, query.name, query.ttype)
 		select {
 		case res, ok := <-results:
 			if !ok {
@@ -129,7 +144,7 @@ func (d *Discovery) FindCatalog(opts ...func(*DiscoverySrvQuery)) chan *Discover
 				//fmt.Printf("Found catalog at %s:%s\n", ip, port)
 				discoverResults <- dr
 			}
-		case <-query.Ctx.Done():
+		case <-query.ctx.Done():
 			close(discoverResults)
 			break
 		case <-tick:
